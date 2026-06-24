@@ -1,19 +1,25 @@
 using System.Text;
+using System.Text.Json;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
+using TrainineeAPI.Models;
 
 namespace RabbitMQ.Worker;
 
 public class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
+    private readonly IConfiguration _configuration;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly ConnectionFactory _connectionFactory;
     private IConnection? _connection;
     private IChannel? _channel;
-    public Worker(ILogger<Worker> logger,ConnectionFactory connectionFactory)
+    public Worker(ILogger<Worker> logger,ConnectionFactory connectionFactory, IServiceScopeFactory serviceScopeFactory, IConfiguration configuration)
     {
         _logger = logger;
         _connectionFactory = connectionFactory;
+        _serviceScopeFactory = serviceScopeFactory;
+        _configuration = configuration;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -36,11 +42,35 @@ public class Worker : BackgroundService
 
         consumer.ReceivedAsync += async (model,ea) =>
         {
+            Console.WriteLine("Consumer consuming message");
 
             var body = ea.Body.ToArray();
-            var message = Encoding.UTF8.GetString(body);
+            var json = Encoding.UTF8.GetString(body);
+            Console.WriteLine("Json string : " + json);
+            var message = JsonSerializer.Deserialize<SubmissionProcessingRequestModel>(json);
+
+            if (message == null)
+            {
+                Console.WriteLine("Message desrialize gave null");
+            }
 
             Console.WriteLine("Revieved Message : " + message);
+
+            // Adding service di 
+            try
+            {
+                await using (var scope = _serviceScopeFactory.CreateAsyncScope())
+                {
+                    var submissionBgService = scope.ServiceProvider.GetRequiredService<ISubissionBgService>();
+
+                    await submissionBgService.GetFileMetaData(message!.SubmissionFileId, cancellationToken: stoppingToken);
+                }
+            }
+            catch (System.Exception)
+            {
+                Console.WriteLine("Not able to inject service file");
+                throw;
+            }
 
             await _channel.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false, cancellationToken: stoppingToken);
         };
