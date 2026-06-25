@@ -89,6 +89,7 @@ public class Worker : BackgroundService
                         var submissionBgService = scope.ServiceProvider.GetRequiredService<ISubissionBgService>();
 
                         await submissionBgService.GetFileMetaData(message!.SubmissionFileId, messageId: message.MessageId, cancellationToken: stoppingToken);
+                        Console.WriteLine("Completed Funcrion ....");
                     }
                 }
                 catch (MaxAttemptExeption e)
@@ -102,11 +103,21 @@ public class Worker : BackgroundService
                     }
                     else
                     {
+                        if (e.RetryReque)
+                        {
+                            Console.WriteLine("Not Requeuing as bool is true");
+                            await _channel.BasicNackAsync(args.DeliveryTag, multiple: false, requeue: false);
+                            return;
+                        }
                         Console.WriteLine("Requeing ...");
                         await _channel.BasicNackAsync(args.DeliveryTag, multiple: false, requeue: true);
                     }
 
                     return;
+                }
+                catch(Exception e)
+                {
+                    Console.WriteLine("Inside Catch of worker as Exception Catch : " + e.Message);
                 }
 
                 await _channel.BasicAckAsync(deliveryTag: args.DeliveryTag, multiple: false, cancellationToken: stoppingToken);
