@@ -10,4 +10,5 @@ public class AppDbContext : DbContext
     }
 
     public DbSet<SubmissionFile> SubmissionFiles {get; set;} = null!;
+    public DbSet<ProcessingJob> ProcessingJobs {get; set;} = null!;
 }

@@ -14,7 +14,8 @@ public class Worker : BackgroundService
     private readonly ConnectionFactory _connectionFactory;
     private IConnection? _connection;
     private IChannel? _channel;
-    public Worker(ILogger<Worker> logger,ConnectionFactory connectionFactory, IServiceScopeFactory serviceScopeFactory, IConfiguration configuration)
+    private readonly int MaxRetry = 10;
+    public Worker(ILogger<Worker> logger, ConnectionFactory connectionFactory, IServiceScopeFactory serviceScopeFactory, IConfiguration configuration)
     {
         _logger = logger;
         _connectionFactory = connectionFactory;
@@ -24,66 +25,107 @@ public class Worker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        Console.WriteLine("We are herer");
-        _connection = await _connectionFactory.CreateConnectionAsync(stoppingToken);
-        _channel = await _connection.CreateChannelAsync(cancellationToken: stoppingToken);
-        await _channel.QueueDeclareAsync(
-            queue: "submissionProcessingQueue",
-            durable: true, 
-            exclusive: false, 
-            autoDelete: false, 
-            arguments: null,
-            cancellationToken: stoppingToken
-        );
-
-        Console.WriteLine("Connected to Queue");
-
-        var consumer = new AsyncEventingBasicConsumer(_channel);
-
-        consumer.ReceivedAsync += async (model,ea) =>
+        try
         {
-            Console.WriteLine("Consumer consuming message");
-
-            var body = ea.Body.ToArray();
-            var json = Encoding.UTF8.GetString(body);
-            Console.WriteLine("Json string : " + json);
-            var message = JsonSerializer.Deserialize<SubmissionProcessingRequestModel>(json);
-
-            if (message == null)
-            {
-                Console.WriteLine("Message desrialize gave null");
-            }
-
-            Console.WriteLine("Revieved Message : " + message);
-
-            // Adding service di 
-            try
-            {
-                await using (var scope = _serviceScopeFactory.CreateAsyncScope())
+            Console.WriteLine("We are herer");
+            _connection = await _connectionFactory.CreateConnectionAsync(stoppingToken);
+            _channel = await _connection.CreateChannelAsync(cancellationToken: stoppingToken);
+            await _channel.QueueDeclareAsync(
+                queue: "submissionProcessingQueue",
+                durable: true,
+                exclusive: false,
+                autoDelete: false,
+                arguments: new Dictionary<string, object?>
                 {
-                    var submissionBgService = scope.ServiceProvider.GetRequiredService<ISubissionBgService>();
+                    ["x-dead-letter-exchange"] = "sub-dlx",
+                    ["x-dead-letter-routing-key"] = "sub-dlr"
+                },
+                cancellationToken: stoppingToken
+            );
 
-                    await submissionBgService.GetFileMetaData(message!.SubmissionFileId, cancellationToken: stoppingToken);
-                }
-            }
-            catch (System.Exception)
+            // creating dlq
+            await _channel.ExchangeDeclareAsync(exchange: "sub-dlx", type: ExchangeType.Direct, durable: true, autoDelete: false, cancellationToken: stoppingToken);
+
+            await _channel.QueueDeclareAsync(
+                queue: "sub-dlq",
+                exclusive: false,
+                durable: true,
+                autoDelete: false,
+                cancellationToken: stoppingToken
+            );
+
+            await _channel.QueueBindAsync(
+                queue: "sub-dlq",
+                exchange: "sub-dlx",
+                routingKey: "sub-dlr",
+                cancellationToken: stoppingToken
+            );
+
+            Console.WriteLine("Connected to Queue");
+
+            var consumer = new AsyncEventingBasicConsumer(_channel);
+
+            consumer.ReceivedAsync += async (model, args) =>
             {
-                Console.WriteLine("Not able to inject service file");
-                throw;
-            }
+                Console.WriteLine("Consumer consuming message");
 
-            await _channel.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false, cancellationToken: stoppingToken);
-        };
+                var body = args.Body.ToArray();
+                var json = Encoding.UTF8.GetString(body);
+                Console.WriteLine("Json string : " + json);
+                var message = JsonSerializer.Deserialize<SubmissionProcessingRequestModel>(json);
 
-        await _channel.BasicConsumeAsync(
-            queue: "submissionProcessingQueue", 
-            autoAck: false, 
-            consumer: consumer,
-            cancellationToken: stoppingToken
-        );
+                if (message == null)
+                {
+                    Console.WriteLine("Message desrialize gave null");
+                }
 
-        // Keep the thread alive while listening for messages
-        await Task.Delay(Timeout.Infinite, stoppingToken);
+                Console.WriteLine("Revieved Message : " + message);
+
+                // Adding service di 
+                try
+                {
+                    await using (var scope = _serviceScopeFactory.CreateAsyncScope())
+                    {
+                        var submissionBgService = scope.ServiceProvider.GetRequiredService<ISubissionBgService>();
+
+                        await submissionBgService.GetFileMetaData(message!.SubmissionFileId, messageId: message.MessageId, cancellationToken: stoppingToken);
+                    }
+                }
+                catch (MaxAttemptExeption e)
+                {
+                    Console.WriteLine("CATCH ATTEMPT : " + e.AttemptCount);
+                    Console.WriteLine("CATCH Error : " + e.Message);
+                    if (e.AttemptCount >= MaxRetry)
+                    {
+                        Console.WriteLine("Stop Requeing ...");
+                        await _channel.BasicNackAsync(args.DeliveryTag, multiple: false, requeue: false);
+                    }
+                    else
+                    {
+                        Console.WriteLine("Requeing ...");
+                        await _channel.BasicNackAsync(args.DeliveryTag, multiple: false, requeue: true);
+                    }
+
+                    return;
+                }
+
+                await _channel.BasicAckAsync(deliveryTag: args.DeliveryTag, multiple: false, cancellationToken: stoppingToken);
+            };
+
+            await _channel.BasicConsumeAsync(
+                queue: "submissionProcessingQueue",
+                autoAck: false,
+                consumer: consumer,
+                cancellationToken: stoppingToken
+            );
+
+            // Keep the thread alive while listening for messages
+            await Task.Delay(Timeout.Infinite, stoppingToken);
+        }
+        catch (System.Exception)
+        {
+            Console.WriteLine("Could not able to connect RabbitMQ");
+        }
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
@@ -92,5 +134,5 @@ public class Worker : BackgroundService
         if (_channel is not null) await _channel.CloseAsync(cancellationToken);
         if (_connection is not null) await _connection.CloseAsync(cancellationToken);
         await base.StopAsync(cancellationToken);
-    }     
+    }
 }
