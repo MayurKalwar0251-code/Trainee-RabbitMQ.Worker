@@ -28,18 +28,18 @@ public class TraineeDirectoryClient : ITraineeDirectoryClient
             }
 
             res.EnsureSuccessStatusCode();
-            
+          
             return await res.Content.ReadFromJsonAsync<Trainee>();
         }
-        // catch(HttpRequestException)
-        // {
-        //     Console.WriteLine("Could not able to connect with TraineeDirectory.Api service apis");   
-        //     throw new Exception("Could not able to connect with TraineeDirectory.Api service apis");
-        // }
-        catch (System.Exception)
+        catch(HttpRequestException e)
         {
-            Console.WriteLine("Something went wrong while calling TraineeDirectory.Api service apis");   
-            throw new Exception("Something went wrong while calling TraineeDirectory.Api service apis");
+            Console.WriteLine("TraineeDirectory.Api service apis unreachable : " + e.Message);   
+            throw new RetryableException("TraineeDirectory.Api service apis unreachable : " + e.Message);
+        }
+        catch (System.Exception e)
+        {
+            Console.WriteLine("Unexpected Error : " + e.Message);   
+            throw new RetryableException("Unexpected Error : " + e.Message);
         }
     }
 }

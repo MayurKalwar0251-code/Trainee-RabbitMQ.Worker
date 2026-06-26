@@ -147,3 +147,6 @@ public class Worker : BackgroundService
         await base.StopAsync(cancellationToken);
     }
 }
+
+// TODO : Still the error is visible in terminal when TraineeDirectory.API server is unreachable
+// handle it properly

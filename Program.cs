@@ -9,6 +9,14 @@ builder.Services.AddHttpClient<ITraineeDirectoryClient,TraineeDirectoryClient>(c
 {
     client.BaseAddress = new Uri(builder.Configuration["TrainingDirectoryApi:BaseUrl"]!);
     client.Timeout = TimeSpan.FromSeconds(5);
+}).AddStandardResilienceHandler(options =>
+{
+    options.Retry.MaxRetryAttempts = 2;
+    options.Retry.Delay = TimeSpan.FromSeconds(2);
+    options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(30);
+    options.CircuitBreaker.FailureRatio = 0.5;
+    options.CircuitBreaker.MinimumThroughput = 5;
+    options.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(15);
 });
 
 var rabbitMQSection = builder.Configuration.GetSection("RabbitMQ");

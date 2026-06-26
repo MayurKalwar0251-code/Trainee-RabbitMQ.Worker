@@ -53,12 +53,16 @@ public class SubissionBgService : ISubissionBgService
                     processingJob!.ErrorSummary = $"Trainee : {traineeId} not found";
                     processingJob.Attempts = attemptCount + 1;
                     processingJob.Status = "Failed";
-                    await _context.SaveChangesAsync();
+                    await _context.SaveChangesAsync(cancellationToken);
                     return;
                 }
 
                 string serialized = JsonSerializer.Serialize(trainee);
                 Console.WriteLine("Trainee DAta fetched as : " + serialized);
+            }
+            catch (RetryableException err)
+            {
+                throw new MaxAttemptExeption(attemptCount, err.Message, false);
             }
             catch (Exception err)
             {
