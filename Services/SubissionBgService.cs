@@ -45,7 +45,7 @@ public class SubissionBgService : ISubissionBgService
 
             try
             {
-                var traineeId = 1000;
+                var traineeId = 1;
                 // fetching trainee details
                 var trainee = await _traineeDirectoryClient.GetTraineeAsync(traineeId);
                 if (trainee == null)

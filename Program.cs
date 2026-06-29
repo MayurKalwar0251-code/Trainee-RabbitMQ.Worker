@@ -7,7 +7,7 @@ var builder = Host.CreateApplicationBuilder(args);
 
 builder.Services.AddHttpClient<ITraineeDirectoryClient,TraineeDirectoryClient>(client =>
 {
-    client.BaseAddress = new Uri(builder.Configuration["TrainingDirectoryApi:BaseUrl"]!);
+    client.BaseAddress = new Uri(builder.Configuration["TraineeDirectoryApi:BaseUrl"]!);
     client.Timeout = TimeSpan.FromSeconds(5);
 }).AddStandardResilienceHandler(options =>
 {
@@ -21,13 +21,27 @@ builder.Services.AddHttpClient<ITraineeDirectoryClient,TraineeDirectoryClient>(c
 
 var rabbitMQSection = builder.Configuration.GetSection("RabbitMQ");
 
-builder.Services.AddSingleton(sp => new ConnectionFactory()
+builder.Services.AddSingleton(sp => 
 {
+    var factory = new ConnectionFactory
+    {
     HostName = rabbitMQSection["HostName"] ?? "localhost",
     UserName = rabbitMQSection["UserName"] ?? "guest",
     Password = rabbitMQSection["Password"] ?? "guest",
     VirtualHost = rabbitMQSection["VirtualHost"] ?? "/",
+    Port = int.Parse(rabbitMQSection["Port"] ?? "5672"),
+    AutomaticRecoveryEnabled = true,
+    NetworkRecoveryInterval = TimeSpan.FromSeconds(5)
+    };
+
+    Console.WriteLine($"RAbbit Mq -> {factory.HostName} : {factory.Port}");
+    return factory;
 });
+
+Console.WriteLine("RabbitMQ:HostName" + rabbitMQSection["HostName"]);
+Console.WriteLine("RabbitMQ:UserName" +  rabbitMQSection["UserName"]);
+Console.WriteLine("RabbitMQ:Password" +  rabbitMQSection["Password"]);
+Console.WriteLine("RabbitMQ:VirtualHost" +  rabbitMQSection["VirtualHost"]);
 
 // 1. Retrieve the connection string
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");

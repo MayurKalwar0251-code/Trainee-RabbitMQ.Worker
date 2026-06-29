@@ -28,8 +28,29 @@ public class Worker : BackgroundService
         try
         {
             Console.WriteLine("We are herer");
-            _connection = await _connectionFactory.CreateConnectionAsync(stoppingToken);
-            _channel = await _connection.CreateChannelAsync(cancellationToken: stoppingToken);
+            Console.WriteLine("RabbitMQ:HostName" + _configuration.GetSection("RabbitMQ")["HostName"]);
+            Console.WriteLine("RabbitMQ:UserName" +  _configuration.GetSection("RabbitMQ")["UserName"]);
+            Console.WriteLine("RabbitMQ:Password" +  _configuration.GetSection("RabbitMQ")["Password"]);
+            Console.WriteLine("RabbitMQ:VirtualHost" +  _configuration.GetSection("RabbitMQ")["VirtualHost"]);
+
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try
+                {
+                    _connection = await _connectionFactory.CreateConnectionAsync(stoppingToken);
+                    _channel = await _connection.CreateChannelAsync(cancellationToken: stoppingToken);
+
+                    Console.WriteLine("Connected to RabbitMQ.");
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"RabbitMQ not ready: {ex.Message}");
+                    await Task.Delay(5000, stoppingToken);
+                }
+            }
+            // _connection = await _connectionFactory.CreateConnectionAsync(stoppingToken);
+            // _channel = await _connection.CreateChannelAsync(cancellationToken: stoppingToken);
             await _channel.QueueDeclareAsync(
                 queue: "submissionProcessingQueue",
                 durable: true,
@@ -133,9 +154,10 @@ public class Worker : BackgroundService
             // Keep the thread alive while listening for messages
             await Task.Delay(Timeout.Infinite, stoppingToken);
         }
-        catch (System.Exception)
+        catch (Exception ex)
         {
-            Console.WriteLine("Could not able to connect RabbitMQ");
+            Console.WriteLine("Error in WOrker catecjed as : " + ex.ToString());
+            Console.WriteLine("Error in WOrker catecjed as : " + ex.Message);
         }
     }
 
